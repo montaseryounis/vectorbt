@@ -1,0 +1,31 @@
+# Railway build for the live dashboard.
+#
+# Unlike apps/live-dashboard/Dockerfile (which installs vectorbt from PyPI and uses
+# the app folder as build context), this Dockerfile is built from the REPO ROOT so
+# it can install THIS repo's vectorbt — including the new `vbt.TwelveData` source —
+# instead of the older published release.
+#
+# Referenced by /railway.json -> build.dockerfilePath. No Railway "Root Directory"
+# setting is needed.
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Build tooling for any source-only dependencies.
+RUN apt-get update && apt-get install -y --no-install-recommends gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install the local vectorbt package (includes vbt.TwelveData) plus the dashboard
+# runtime dependencies.
+COPY . /src
+RUN pip install --no-cache-dir -U pip \
+    && pip install --no-cache-dir /src \
+    && pip install --no-cache-dir "ccxt>=4.0.14" "dash>=3.0" "plotly>=5.0" "gunicorn>=21.0"
+
+WORKDIR /src/apps/live-dashboard
+ENV HOST=0.0.0.0 PORT=8050
+EXPOSE 8050
+
+# Shell form so Railway's injected $PORT is expanded at runtime (defaults to 8050 locally).
+CMD gunicorn app:server --bind 0.0.0.0:${PORT:-8050} --workers 1 --timeout 120

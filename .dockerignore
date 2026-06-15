@@ -1,0 +1,12 @@
+# Keep the Docker build context small. Note: LICENSE.md and README.md are
+# required by pyproject.toml (license-files / readme) so they are NOT ignored.
+.git
+docs/
+examples/
+benchmarks/
+rust/target/
+tests/
+**/__pycache__/
+*.pyc
+*.ipynb
+.env
