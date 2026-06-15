@@ -94,27 +94,33 @@ docker run -p 8050:8050 -e VBT_EXCHANGE=binance vbt-live
 **Railway** (recommended for this app — it needs a long-running server for the
 background data updater)
 
-This repo is a monorepo, so point Railway at the app subdirectory:
+A root `railway.json` already points Railway at `apps/live-dashboard/Dockerfile.railway`,
+which builds from the repo root so it installs **this repo's** vectorbt (with the
+`TwelveData` source) instead of the older PyPI release. **No "Root Directory" setting
+is needed** — just deploy the repo as-is:
 
-1. Railway → **New Project → Deploy from GitHub repo** → pick this repository.
-2. Open the service → **Settings → Root Directory** → set it to `apps/live-dashboard`.
-   Railway then reads `railway.toml` + `Dockerfile` from there.
-3. **Settings → Variables** → add (see the table above):
+1. Railway → **New Project → Deploy from GitHub repo** → pick this repository
+   (deploy the `master` branch).
+2. **Settings → Variables** → add (see the table above):
    - `VBT_SOURCE=twelvedata`
    - `TWELVEDATA_API_KEY=your_key`
    - (or for ccxt: `VBT_EXCHANGE`, `VBT_API_KEY`, `VBT_API_SECRET`)
    - Do **not** set `PORT` — Railway injects it automatically.
-4. **Settings → Networking → Generate Domain** to get a public URL.
-5. Deploy. The `railway.toml` start command binds gunicorn to `0.0.0.0:$PORT` and
-   adds a `/` health check.
+3. **Settings → Networking → Generate Domain** to get a public URL.
+4. Deploy. The image starts gunicorn on `0.0.0.0:$PORT` with a `/` health check.
 
-CLI alternative:
+> If Railway shows a JupyterLab login page, it built the **root** `Dockerfile`
+> (vectorbt's notebook image) instead of `railway.json`. Trigger a fresh deploy so
+> the `railway.json` build config is picked up, or set **Settings → Build → Builder**
+> to *Dockerfile* with **Dockerfile Path** `apps/live-dashboard/Dockerfile.railway`.
+
+CLI alternative (from the repo root):
 
 ```sh
 npm i -g @railway/cli
 railway login
 railway init
-railway up --service <name>            # from apps/live-dashboard
+railway up
 railway variables --set TWELVEDATA_API_KEY=your_key --set VBT_SOURCE=twelvedata
 ```
 
