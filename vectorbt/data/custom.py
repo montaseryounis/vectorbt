@@ -942,3 +942,145 @@ class AlpacaData(Data):
         download_kwargs["show_progress"] = False
         kwargs = merge_dicts(download_kwargs, kwargs)
         return self.download_symbol(symbol, **kwargs)
+
+
+TwelveDataT = tp.TypeVar("TwelveDataT", bound="TwelveData")
+
+
+class TwelveData(Data):
+    """`Data` for data coming from [Twelve Data](https://twelvedata.com).
+
+    Supports stocks, ETFs, forex, and crypto across a single REST endpoint.
+
+    An API key is required. It is resolved, in order, from the `apikey` argument,
+    `data.twelvedata.api_key` in `vectorbt._settings.settings`, and finally the
+    `TWELVEDATA_API_KEY` environment variable.
+
+    Usage:
+        ```pycon
+        >>> import vectorbt as vbt
+
+        >>> td_data = vbt.TwelveData.download(
+        ...     "BTC/USD",
+        ...     interval="1h",
+        ...     start="3 days ago UTC"
+        ... )
+        >>> td_data.get()
+        ```
+    """
+
+    # Map common vectorbt-style intervals to Twelve Data intervals.
+    _interval_map = {
+        "1m": "1min", "5m": "5min", "15m": "15min", "30m": "30min", "45m": "45min",
+        "1h": "1h", "2h": "2h", "4h": "4h",
+        "1d": "1day", "1w": "1week", "1M": "1month",
+    }
+
+    @classmethod
+    def download_symbol(
+        cls,
+        symbol: str,
+        apikey: tp.Optional[str] = None,
+        interval: str = "1day",
+        start: tp.Optional[tp.DatetimeLike] = None,
+        end: tp.Optional[tp.DatetimeLike] = None,
+        outputsize: int = 5000,
+        timezone: str = "UTC",
+        delay: tp.Optional[float] = None,
+        request_kwargs: tp.KwargsLike = None,
+    ) -> tp.Frame:
+        """Download the symbol.
+
+        Args:
+            symbol (str): Symbol, e.g. `"AAPL"`, `"EUR/USD"`, or `"BTC/USD"`.
+            apikey (str): Twelve Data API key.
+
+                For defaults, see `data.twelvedata` in `vectorbt._settings.settings`,
+                or set the `TWELVEDATA_API_KEY` environment variable.
+            interval (str): Bar interval.
+
+                One of Twelve Data's intervals (`1min`, `5min`, ..., `1day`, `1week`,
+                `1month`) or a vectorbt-style alias (`1m`, `1h`, `1d`, ...).
+            start (any): Start datetime.
+
+                See `vectorbt.utils.datetime_.to_tzaware_datetime`.
+            end (any): End datetime.
+
+                See `vectorbt.utils.datetime_.to_tzaware_datetime`.
+            outputsize (int): Maximum number of bars to return (Twelve Data caps this at 5000).
+            timezone (str): Timezone of the returned bars.
+            delay (float): Time to sleep after the request (in milliseconds).
+
+                Useful for staying under the free-tier rate limit.
+            request_kwargs (dict): Keyword arguments passed to `requests.get`.
+        """
+        import os
+        import requests
+
+        from vectorbt._settings import settings
+
+        twelvedata_cfg = settings["data"]["twelvedata"]
+
+        if apikey is None:
+            apikey = twelvedata_cfg.get("api_key")
+        if apikey is None:
+            apikey = os.environ.get("TWELVEDATA_API_KEY")
+        if apikey is None:
+            raise ValueError(
+                "Twelve Data API key is required. Pass `apikey`, set "
+                "`vbt.settings.data.twelvedata['api_key']`, or export TWELVEDATA_API_KEY."
+            )
+
+        interval = cls._interval_map.get(interval, interval)
+
+        params = {
+            "symbol": symbol,
+            "interval": interval,
+            "outputsize": outputsize,
+            "timezone": timezone,
+            "order": "ASC",
+            "format": "JSON",
+            "apikey": apikey,
+        }
+        if start is not None:
+            start = to_tzaware_datetime(start, tz=get_utc_tz())
+            params["start_date"] = pd.Timestamp(start).strftime("%Y-%m-%d %H:%M:%S")
+        if end is not None:
+            end = to_tzaware_datetime(end, tz=get_utc_tz())
+            params["end_date"] = pd.Timestamp(end).strftime("%Y-%m-%d %H:%M:%S")
+
+        if request_kwargs is None:
+            request_kwargs = {}
+        response = requests.get("https://api.twelvedata.com/time_series", params=params, **request_kwargs)
+        response.raise_for_status()
+        data = response.json()
+
+        if isinstance(data, dict) and data.get("status") == "error":
+            raise ValueError(f"Twelve Data error {data.get('code')}: {data.get('message')}")
+        values = data.get("values") if isinstance(data, dict) else None
+        if not values:
+            raise ValueError(f"Twelve Data returned no values for '{symbol}'")
+
+        df = pd.DataFrame(values)
+        df["datetime"] = pd.to_datetime(df["datetime"], utc=True)
+        df = df.set_index("datetime").sort_index()
+        df = df.rename(columns={
+            "open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume",
+        })
+        for col in ["Open", "High", "Low", "Close", "Volume"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        df.index.name = "Datetime"
+
+        if delay is not None:
+            time.sleep(delay / 1000)
+        return df
+
+    def update_symbol(self, symbol: str, **kwargs) -> tp.Frame:
+        """Update the symbol.
+
+        `**kwargs` will override keyword arguments passed to `TwelveData.download_symbol`."""
+        download_kwargs = self.select_symbol_kwargs(symbol, self.download_kwargs)
+        download_kwargs["start"] = self.data[symbol].index[-1]
+        kwargs = merge_dicts(download_kwargs, kwargs)
+        return self.download_symbol(symbol, **kwargs)

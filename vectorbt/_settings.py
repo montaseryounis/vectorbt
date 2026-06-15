@@ -149,6 +149,7 @@ settings = SettingsConfig(
             alpaca=Config(dict(api_key=None, secret_key=None)),
             binance=Config(dict(api_key=None, api_secret=None)),  # flex
             ccxt=Config(dict(enableRateLimit=True)),  # flex
+            twelvedata=Config(dict(api_key=None)),
             stats=Config(),  # flex
             plots=Config(),  # flex
         ),

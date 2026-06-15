@@ -38,18 +38,29 @@ import vectorbt as vbt
 # Configuration (all overridable via environment variables)
 # ---------------------------------------------------------------------------- #
 
+# Data source: "ccxt" (crypto exchanges) or "twelvedata" (stocks/forex/crypto).
+SOURCE = os.environ.get("VBT_SOURCE", "ccxt").lower()
+
 EXCHANGE = os.environ.get("VBT_EXCHANGE", "binance")
 API_KEY = os.environ.get("VBT_API_KEY")
 API_SECRET = os.environ.get("VBT_API_SECRET")
 
+# Twelve Data uses its own single API key.
+TWELVEDATA_API_KEY = os.environ.get("TWELVEDATA_API_KEY")
+
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", 8050))
 
-DEFAULT_SYMBOL = os.environ.get("VBT_SYMBOL", "BTC/USDT")
 DEFAULT_TIMEFRAME = os.environ.get("VBT_TIMEFRAME", "1m")
 DEFAULT_LOOKBACK = os.environ.get("VBT_LOOKBACK", "2 days ago UTC")
 
-SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"]
+if SOURCE == "twelvedata":
+    SYMBOLS = ["BTC/USD", "ETH/USD", "AAPL", "TSLA", "EUR/USD"]
+    DEFAULT_SYMBOL = os.environ.get("VBT_SYMBOL", "BTC/USD")
+else:
+    SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"]
+    DEFAULT_SYMBOL = os.environ.get("VBT_SYMBOL", "BTC/USDT")
+
 TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"]
 
 # How often the page polls for a redraw (ms). Kept in sync with the data updater.
@@ -85,14 +96,22 @@ def get_feed(symbol, timeframe):
     if feed is not None:
         return feed["updater"].data
 
-    data = vbt.CCXTData.download(
-        symbol,
-        exchange=EXCHANGE,
-        config=_ccxt_config(),
-        timeframe=timeframe,
-        start=DEFAULT_LOOKBACK,
-        show_progress=False,
-    )
+    if SOURCE == "twelvedata":
+        data = vbt.TwelveData.download(
+            symbol,
+            apikey=TWELVEDATA_API_KEY,
+            interval=timeframe,
+            start=DEFAULT_LOOKBACK,
+        )
+    else:
+        data = vbt.CCXTData.download(
+            symbol,
+            exchange=EXCHANGE,
+            config=_ccxt_config(),
+            timeframe=timeframe,
+            start=DEFAULT_LOOKBACK,
+            show_progress=False,
+        )
     updater = vbt.DataUpdater(data)
     # Poll the exchange in the background; the UI reads updater.data on each tick.
     updater.update_every(int(REFRESH_MS / 1000), "seconds", in_background=True)
@@ -214,7 +233,8 @@ controls = html.Div(className="controls", children=[
 
 app.layout = html.Div(className="wrap", children=[
     html.H2(["vectorbt ", html.Span("Live Dashboard", className="accent")]),
-    html.P(f"Exchange: {EXCHANGE} · auto-refresh every {REFRESH_MS // 1000}s · "
+    html.P(f"Source: {'Twelve Data' if SOURCE == 'twelvedata' else EXCHANGE} · "
+           f"auto-refresh every {REFRESH_MS // 1000}s · "
            f"fees {FEES:.3%} · slippage {SLIPPAGE:.3%}", className="sub"),
     controls,
     html.Div(className="grid", children=[
@@ -247,7 +267,9 @@ def refresh(_, symbol, timeframe, strategy, fast, slow):
 
 
 if __name__ == "__main__":
-    print(f"Starting live dashboard on http://{HOST}:{PORT}  (exchange={EXCHANGE})")
-    if not (API_KEY and API_SECRET):
-        print("No API credentials found in env — using public endpoints only.")
+    print(f"Starting live dashboard on http://{HOST}:{PORT}  (source={SOURCE})")
+    if SOURCE == "twelvedata" and not TWELVEDATA_API_KEY:
+        print("TWELVEDATA_API_KEY not set — Twelve Data requests will fail.")
+    elif SOURCE != "twelvedata" and not (API_KEY and API_SECRET):
+        print("No exchange API credentials found in env — using public endpoints only.")
     app.run(host=HOST, port=PORT, debug=bool(os.environ.get("DEBUG")))

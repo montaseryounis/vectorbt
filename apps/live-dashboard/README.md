@@ -2,16 +2,17 @@
 
 A real-time trading research dashboard built on [vectorbt](https://github.com/polakowo/vectorbt).
 
-It streams OHLCV data from any [ccxt](https://github.com/ccxt/ccxt)-supported exchange
-(Binance by default), keeps it fresh in the background with `vbt.DataUpdater`, runs a
-vectorbt backtest on every refresh, and renders an interactive Plotly dashboard that
+It streams OHLCV data from either any [ccxt](https://github.com/ccxt/ccxt)-supported
+exchange (Binance by default) **or [Twelve Data](https://twelvedata.com)** (stocks,
+ETFs, forex, and crypto), keeps it fresh in the background with `vbt.DataUpdater`, runs
+a vectorbt backtest on every refresh, and renders an interactive Plotly dashboard that
 auto-updates in the browser.
 
 ![dashboard](assets/screenshot.png)
 
 ## Features
 
-- **Live data feed** via `vbt.CCXTData` + background `vbt.DataUpdater` (non-blocking polling).
+- **Live data feed** via `vbt.CCXTData` or `vbt.TwelveData` + background `vbt.DataUpdater` (non-blocking polling).
 - **Interactive controls** — switch symbol, timeframe, strategy, and parameters on the fly.
 - **Three strategies** out of the box: SMA crossover, RSI mean-reversion, and Buy & hold.
 - **Realistic backtests** — fees and slippage applied by default.
@@ -30,17 +31,39 @@ cp .env.example .env        # then edit, or just export the vars
 python app.py               # http://127.0.0.1:8050
 ```
 
-Public OHLCV endpoints work **without** API keys. Providing keys raises rate limits.
+Public ccxt OHLCV endpoints work **without** API keys. Providing keys raises rate limits.
+
+### Using Twelve Data instead
+
+```sh
+export VBT_SOURCE=twelvedata
+export TWELVEDATA_API_KEY=your_key   # https://twelvedata.com
+python app.py
+```
+
+Or straight from the library (newly added `vbt.TwelveData`):
+
+```python
+import vectorbt as vbt
+
+data = vbt.TwelveData.download("AAPL", interval="1h", start="5 days ago UTC",
+                               apikey="your_key")
+price = data.get("Close")
+pf = vbt.Portfolio.from_holding(price, freq="1h")
+print(pf.stats())
+```
 
 ## Configuration
 
 All settings are environment variables (see `.env.example`):
 
-| Variable          | Default          | Description                                  |
-|-------------------|------------------|----------------------------------------------|
-| `VBT_EXCHANGE`    | `binance`        | Any ccxt exchange id                         |
-| `VBT_API_KEY`     | —                | Exchange API key (optional)                  |
-| `VBT_API_SECRET`  | —                | Exchange API secret (optional)               |
+| Variable             | Default          | Description                                  |
+|----------------------|------------------|----------------------------------------------|
+| `VBT_SOURCE`         | `ccxt`           | `ccxt` or `twelvedata`                        |
+| `VBT_EXCHANGE`       | `binance`        | Any ccxt exchange id (ccxt source)           |
+| `VBT_API_KEY`        | —                | Exchange API key (ccxt, optional)            |
+| `VBT_API_SECRET`     | —                | Exchange API secret (ccxt, optional)         |
+| `TWELVEDATA_API_KEY` | —                | Twelve Data API key (twelvedata source)      |
 | `VBT_SYMBOL`      | `BTC/USDT`       | Default symbol                               |
 | `VBT_TIMEFRAME`   | `1m`             | Default timeframe                            |
 | `VBT_LOOKBACK`    | `2 days ago UTC` | How far back to load on start                |
