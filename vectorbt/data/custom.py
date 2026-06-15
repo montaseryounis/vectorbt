@@ -946,6 +946,16 @@ class AlpacaData(Data):
 
 TwelveDataT = tp.TypeVar("TwelveDataT", bound="TwelveData")
 
+# Module-level TTL response cache for Twelve Data, keyed by request parameters.
+# Each entry is (fetched_at_monotonic, DataFrame). Helps stay under the free-tier
+# rate limit when the same request is issued repeatedly within a short window.
+_twelvedata_cache: tp.Dict[tuple, tp.Tuple[float, "pd.DataFrame"]] = {}
+
+
+def clear_twelvedata_cache() -> None:
+    """Clear the in-memory `TwelveData` response cache."""
+    _twelvedata_cache.clear()
+
 
 class TwelveData(Data):
     """`Data` for data coming from [Twelve Data](https://twelvedata.com).
@@ -987,6 +997,8 @@ class TwelveData(Data):
         outputsize: int = 5000,
         timezone: str = "UTC",
         delay: tp.Optional[float] = None,
+        use_cache: bool = False,
+        cache_ttl: float = 60.0,
         request_kwargs: tp.KwargsLike = None,
     ) -> tp.Frame:
         """Download the symbol.
@@ -1012,6 +1024,10 @@ class TwelveData(Data):
             delay (float): Time to sleep after the request (in milliseconds).
 
                 Useful for staying under the free-tier rate limit.
+            use_cache (bool): Whether to serve identical requests from an in-memory
+                TTL cache to save API credits. Disabled by default so that live
+                updates always fetch fresh data.
+            cache_ttl (float): Time-to-live of cached responses (in seconds).
             request_kwargs (dict): Keyword arguments passed to `requests.get`.
         """
         import os
@@ -1049,6 +1065,13 @@ class TwelveData(Data):
             end = to_tzaware_datetime(end, tz=get_utc_tz())
             params["end_date"] = pd.Timestamp(end).strftime("%Y-%m-%d %H:%M:%S")
 
+        # Serve from the TTL cache when enabled (key excludes the secret api key).
+        cache_key = tuple(sorted((k, v) for k, v in params.items() if k != "apikey"))
+        if use_cache:
+            cached = _twelvedata_cache.get(cache_key)
+            if cached is not None and (time.monotonic() - cached[0]) < cache_ttl:
+                return cached[1].copy()
+
         if request_kwargs is None:
             request_kwargs = {}
         response = requests.get("https://api.twelvedata.com/time_series", params=params, **request_kwargs)
@@ -1071,6 +1094,9 @@ class TwelveData(Data):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
         df.index.name = "Datetime"
+
+        if use_cache:
+            _twelvedata_cache[cache_key] = (time.monotonic(), df.copy())
 
         if delay is not None:
             time.sleep(delay / 1000)

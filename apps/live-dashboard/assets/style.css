@@ -74,6 +74,18 @@ h2 {
     border-bottom: 1px solid var(--border);
 }
 
+.stats th {
+    padding: 8px 4px;
+    text-align: right;
+    color: var(--muted);
+    font-size: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.stats th:first-child {
+    text-align: left;
+}
+
 .stats .k {
     color: var(--muted);
 }

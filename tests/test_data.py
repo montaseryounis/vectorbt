@@ -1085,3 +1085,31 @@ class TestTwelveData:
         vbt.settings.data["twelvedata"]["api_key"] = None
         with pytest.raises(ValueError, match="API key is required"):
             vbt.TwelveData.download("BTC/USD")
+
+    def test_cache_avoids_second_request(self, monkeypatch):
+        from vectorbt.data.custom import clear_twelvedata_cache
+
+        clear_twelvedata_cache()
+        payload = {
+            "status": "ok",
+            "values": [
+                {"datetime": "2021-01-01 00:00:00", "open": "1", "high": "2",
+                 "low": "0.5", "close": "1.5", "volume": "10"},
+            ],
+        }
+        calls = {"n": 0}
+
+        def fake_get(url, params=None, **kwargs):
+            calls["n"] += 1
+            return _FakeResponse(payload)
+
+        import requests
+        monkeypatch.setattr(requests, "get", fake_get)
+
+        vbt.TwelveData.download("BTC/USD", interval="1h", apikey="dummy", use_cache=True)
+        vbt.TwelveData.download("BTC/USD", interval="1h", apikey="dummy", use_cache=True)
+        assert calls["n"] == 1  # second call served from cache
+
+        clear_twelvedata_cache()
+        vbt.TwelveData.download("BTC/USD", interval="1h", apikey="dummy", use_cache=True)
+        assert calls["n"] == 2  # cache cleared -> refetch

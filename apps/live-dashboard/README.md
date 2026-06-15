@@ -13,7 +13,9 @@ auto-updates in the browser.
 ## Features
 
 - **Live data feed** via `vbt.CCXTData` or `vbt.TwelveData` + background `vbt.DataUpdater` (non-blocking polling).
-- **Interactive controls** — switch symbol, timeframe, strategy, and parameters on the fly.
+- **Multi-symbol comparison** — select several symbols to overlay normalized equity
+  curves and rank them in a comparison table (return, Sharpe, max drawdown, trades).
+- **Interactive controls** — switch symbols, timeframe, strategy, and parameters on the fly.
 - **Three strategies** out of the box: SMA crossover, RSI mean-reversion, and Buy & hold.
 - **Realistic backtests** — fees and slippage applied by default.
 - **Live analytics panel** — return, drawdown, Sharpe, trade count, win rate.
@@ -46,12 +48,17 @@ Or straight from the library (newly added `vbt.TwelveData`):
 ```python
 import vectorbt as vbt
 
+# use_cache serves identical requests from an in-memory TTL cache to save credits
 data = vbt.TwelveData.download("AAPL", interval="1h", start="5 days ago UTC",
-                               apikey="your_key")
+                               apikey="your_key", use_cache=True, cache_ttl=60)
 price = data.get("Close")
 pf = vbt.Portfolio.from_holding(price, freq="1h")
 print(pf.stats())
 ```
+
+`vbt.TwelveData` supports an opt-in TTL response cache (`use_cache`, `cache_ttl`) to
+stay under Twelve Data's rate limit; clear it with
+`from vectorbt.data.custom import clear_twelvedata_cache`.
 
 ## Configuration
 

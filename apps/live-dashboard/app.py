@@ -190,7 +190,7 @@ def make_figure(data, pf, overlays):
 
 
 def make_stats(pf):
-    """Render a compact, human-readable stats panel."""
+    """Render a compact, human-readable stats panel for a single symbol."""
     def row(label, value):
         return html.Tr([html.Td(label, className="k"), html.Td(value, className="v")])
 
@@ -207,6 +207,36 @@ def make_stats(pf):
     ], className="stats")
 
 
+def make_comparison_figure(equities):
+    """Overlay normalized equity curves (base 100) for several symbols."""
+    fig = go.Figure()
+    for symbol, equity in equities.items():
+        norm = equity / equity.iloc[0] * 100
+        fig.add_trace(go.Scatter(x=norm.index, y=norm.values, name=symbol, mode="lines"))
+    fig.update_layout(
+        template="plotly_dark", height=720, margin=dict(l=40, r=20, t=40, b=20),
+        title="Equity (normalized to 100)", legend=dict(orientation="h", y=1.05),
+    )
+    return fig
+
+
+def make_comparison_stats(rows):
+    """Render a sortable-looking comparison table across symbols."""
+    fmt = lambda x: f"{x:,.2f}"
+    head = html.Tr([html.Th(h) for h in ["Symbol", "Return %", "Sharpe", "MaxDD %", "Trades"]])
+    body = [
+        html.Tr([
+            html.Td(r["symbol"], className="k"),
+            html.Td(fmt(r["ret"]), className="v"),
+            html.Td(fmt(r["sharpe"]), className="v"),
+            html.Td(fmt(r["maxdd"]), className="v"),
+            html.Td(str(r["trades"]), className="v"),
+        ])
+        for r in rows
+    ]
+    return html.Table([head] + body, className="stats")
+
+
 # ---------------------------------------------------------------------------- #
 # Dash app
 # ---------------------------------------------------------------------------- #
@@ -215,8 +245,8 @@ app = Dash(__name__, title="vectorbt — Live Dashboard")
 server = app.server  # for gunicorn / WSGI deployment
 
 controls = html.Div(className="controls", children=[
-    html.Div([html.Label("Symbol"), dcc.Dropdown(
-        SYMBOLS, DEFAULT_SYMBOL, id="symbol", clearable=False)]),
+    html.Div([html.Label("Symbols"), dcc.Dropdown(
+        SYMBOLS, [DEFAULT_SYMBOL], id="symbol", multi=True, clearable=False)]),
     html.Div([html.Label("Timeframe"), dcc.Dropdown(
         TIMEFRAMES, DEFAULT_TIMEFRAME, id="timeframe", clearable=False)]),
     html.Div([html.Label("Strategy"), dcc.Dropdown(
@@ -255,13 +285,37 @@ app.layout = html.Div(className="wrap", children=[
     Input("fast", "value"),
     Input("slow", "value"),
 )
-def refresh(_, symbol, timeframe, strategy, fast, slow):
+def refresh(_, symbols, timeframe, strategy, fast, slow):
+    # Normalize the multi-select value to a non-empty list.
+    if isinstance(symbols, str):
+        symbols = [symbols]
+    symbols = symbols or [DEFAULT_SYMBOL]
+    fast, slow = int(fast or 10), int(slow or 50)
+
     try:
-        data = get_feed(symbol, timeframe)
-        price = data.get("Close")
-        pf, overlays = build_portfolio(
-            price, strategy, int(fast or 10), int(slow or 50), freq=timeframe)
-        return make_figure(data, pf, overlays), make_stats(pf)
+        # Single symbol: detailed candlestick + equity + stats panel.
+        if len(symbols) == 1:
+            data = get_feed(symbols[0], timeframe)
+            price = data.get("Close")
+            pf, overlays = build_portfolio(price, strategy, fast, slow, freq=timeframe)
+            return make_figure(data, pf, overlays), make_stats(pf)
+
+        # Multiple symbols: normalized equity overlay + comparison table.
+        equities, rows = {}, []
+        for sym in symbols:
+            data = get_feed(sym, timeframe)
+            price = data.get("Close")
+            pf, _ = build_portfolio(price, strategy, fast, slow, freq=timeframe)
+            equities[sym] = pf.value()
+            rows.append(dict(
+                symbol=sym,
+                ret=float(pf.total_return()) * 100,
+                sharpe=float(pf.sharpe_ratio()),
+                maxdd=float(pf.max_drawdown()) * 100,
+                trades=int(pf.trades.count()),
+            ))
+        rows.sort(key=lambda r: r["ret"], reverse=True)
+        return make_comparison_figure(equities), make_comparison_stats(rows)
     except Exception as exc:  # surface errors in the UI instead of a blank page
         return no_update, html.Div(f"⚠️ {exc}", className="error")
 
