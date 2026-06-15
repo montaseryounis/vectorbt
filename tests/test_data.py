@@ -1021,3 +1021,95 @@ class TestDataUpdater:
             data = data.update()
         assert updater.data == data
         assert updater.config["data"] == data
+
+
+# ############# TwelveData ############# #
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+class TestTwelveData:
+    def test_download_parses_values(self, monkeypatch):
+        payload = {
+            "meta": {"symbol": "BTC/USD", "interval": "1h"},
+            "status": "ok",
+            "values": [
+                # Twelve Data returns newest first; the class must sort ascending.
+                {"datetime": "2021-01-01 01:00:00", "open": "2", "high": "4",
+                 "low": "1", "close": "3", "volume": "20"},
+                {"datetime": "2021-01-01 00:00:00", "open": "1", "high": "2",
+                 "low": "0.5", "close": "1.5", "volume": "10"},
+            ],
+        }
+        captured = {}
+
+        def fake_get(url, params=None, **kwargs):
+            captured["url"] = url
+            captured["params"] = params
+            return _FakeResponse(payload)
+
+        import requests
+        monkeypatch.setattr(requests, "get", fake_get)
+
+        data = vbt.TwelveData.download("BTC/USD", interval="1h", apikey="dummy")
+        df = data.get()
+
+        # Interval alias mapped, columns renamed, numeric + sorted ascending.
+        assert captured["params"]["interval"] == "1h"
+        assert captured["params"]["apikey"] == "dummy"
+        assert list(df.columns) == ["Open", "High", "Low", "Close", "Volume"]
+        assert df.index.is_monotonic_increasing
+        assert df["Close"].tolist() == [1.5, 3.0]
+        assert str(df.index.tz) == "UTC"
+
+    def test_download_raises_on_api_error(self, monkeypatch):
+        payload = {"code": 401, "message": "Invalid API key", "status": "error"}
+
+        import requests
+        monkeypatch.setattr(requests, "get", lambda *a, **k: _FakeResponse(payload))
+
+        with pytest.raises(ValueError, match="Invalid API key"):
+            vbt.TwelveData.download("BTC/USD", apikey="bad")
+
+    def test_missing_api_key_raises(self, monkeypatch):
+        monkeypatch.delenv("TWELVEDATA_API_KEY", raising=False)
+        vbt.settings.data["twelvedata"]["api_key"] = None
+        with pytest.raises(ValueError, match="API key is required"):
+            vbt.TwelveData.download("BTC/USD")
+
+    def test_cache_avoids_second_request(self, monkeypatch):
+        from vectorbt.data.custom import clear_twelvedata_cache
+
+        clear_twelvedata_cache()
+        payload = {
+            "status": "ok",
+            "values": [
+                {"datetime": "2021-01-01 00:00:00", "open": "1", "high": "2",
+                 "low": "0.5", "close": "1.5", "volume": "10"},
+            ],
+        }
+        calls = {"n": 0}
+
+        def fake_get(url, params=None, **kwargs):
+            calls["n"] += 1
+            return _FakeResponse(payload)
+
+        import requests
+        monkeypatch.setattr(requests, "get", fake_get)
+
+        vbt.TwelveData.download("BTC/USD", interval="1h", apikey="dummy", use_cache=True)
+        vbt.TwelveData.download("BTC/USD", interval="1h", apikey="dummy", use_cache=True)
+        assert calls["n"] == 1  # second call served from cache
+
+        clear_twelvedata_cache()
+        vbt.TwelveData.download("BTC/USD", interval="1h", apikey="dummy", use_cache=True)
+        assert calls["n"] == 2  # cache cleared -> refetch

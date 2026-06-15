@@ -4,7 +4,7 @@
 """Modules for working with data sources."""
 
 from vectorbt.data.base import symbol_dict, Data
-from vectorbt.data.custom import SyntheticData, GBMData, YFData, BinanceData, CCXTData, AlpacaData
+from vectorbt.data.custom import SyntheticData, GBMData, YFData, BinanceData, CCXTData, AlpacaData, TwelveData
 from vectorbt.data.updater import DataUpdater
 
 __all__ = [
@@ -17,6 +17,7 @@ __all__ = [
     "BinanceData",
     "CCXTData",
     "AlpacaData",
+    "TwelveData",
 ]
 
 __pdoc__ = {k: False for k in __all__}
