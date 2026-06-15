@@ -1,0 +1,5 @@
+vectorbt>=1.0.0
+ccxt>=4.0.14
+dash>=3.0
+plotly>=5.0
+gunicorn>=21.0
