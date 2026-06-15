@@ -10,4 +10,6 @@ COPY . .
 ENV HOST=0.0.0.0 PORT=8050
 EXPOSE 8050
 
-CMD ["gunicorn", "app:server", "--bind", "0.0.0.0:8050", "--workers", "1", "--timeout", "120"]
+# Shell form so $PORT (injected by Railway/Heroku/etc.) is expanded at runtime,
+# falling back to 8050 for local `docker run`.
+CMD gunicorn app:server --bind 0.0.0.0:${PORT:-8050} --workers 1 --timeout 120

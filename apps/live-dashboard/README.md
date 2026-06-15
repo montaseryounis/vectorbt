@@ -91,7 +91,34 @@ docker build -t vbt-live .
 docker run -p 8050:8050 -e VBT_EXCHANGE=binance vbt-live
 ```
 
-**Heroku / Render / Railway** — the included `Procfile` runs the app under gunicorn.
+**Railway** (recommended for this app — it needs a long-running server for the
+background data updater)
+
+This repo is a monorepo, so point Railway at the app subdirectory:
+
+1. Railway → **New Project → Deploy from GitHub repo** → pick this repository.
+2. Open the service → **Settings → Root Directory** → set it to `apps/live-dashboard`.
+   Railway then reads `railway.toml` + `Dockerfile` from there.
+3. **Settings → Variables** → add (see the table above):
+   - `VBT_SOURCE=twelvedata`
+   - `TWELVEDATA_API_KEY=your_key`
+   - (or for ccxt: `VBT_EXCHANGE`, `VBT_API_KEY`, `VBT_API_SECRET`)
+   - Do **not** set `PORT` — Railway injects it automatically.
+4. **Settings → Networking → Generate Domain** to get a public URL.
+5. Deploy. The `railway.toml` start command binds gunicorn to `0.0.0.0:$PORT` and
+   adds a `/` health check.
+
+CLI alternative:
+
+```sh
+npm i -g @railway/cli
+railway login
+railway init
+railway up --service <name>            # from apps/live-dashboard
+railway variables --set TWELVEDATA_API_KEY=your_key --set VBT_SOURCE=twelvedata
+```
+
+**Heroku / Render** — the included `Procfile` runs the app under gunicorn.
 
 ## How it works
 
