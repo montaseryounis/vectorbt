@@ -39,8 +39,14 @@ import vectorbt as vbt
 # Configuration (all overridable via environment variables)
 # ---------------------------------------------------------------------------- #
 
+# Optional market preset, e.g. VBT_MARKET=saudi loads the Tadawul catalog and forces
+# the Twelve Data source with exchange=Tadawul.
+MARKET = os.environ.get("VBT_MARKET", "").lower()
+
 # Data source: "ccxt" (crypto exchanges) or "twelvedata" (stocks/forex/crypto).
 SOURCE = os.environ.get("VBT_SOURCE", "ccxt").lower()
+if MARKET in ("saudi", "tadawul"):
+    SOURCE = "twelvedata"
 
 EXCHANGE = os.environ.get("VBT_EXCHANGE", "binance")
 API_KEY = os.environ.get("VBT_API_KEY")
@@ -54,24 +60,37 @@ TWELVEDATA_API_KEY = os.environ.get("TWELVEDATA_API_KEY")
 TD_EXCHANGE = os.environ.get("VBT_TD_EXCHANGE")
 TD_MIC = os.environ.get("VBT_TD_MIC")
 TD_COUNTRY = os.environ.get("VBT_TD_COUNTRY")
+if MARKET in ("saudi", "tadawul") and not (TD_EXCHANGE or TD_MIC or TD_COUNTRY):
+    TD_EXCHANGE = "Tadawul"
 
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", 8050))
 
-DEFAULT_TIMEFRAME = os.environ.get("VBT_TIMEFRAME", "1m")
-DEFAULT_LOOKBACK = os.environ.get("VBT_LOOKBACK", "2 days ago UTC")
+# Intraday is sparse on Tadawul, so default the Saudi preset to daily bars over a year.
+_is_saudi = MARKET in ("saudi", "tadawul")
+DEFAULT_TIMEFRAME = os.environ.get("VBT_TIMEFRAME", "1d" if _is_saudi else "1m")
+DEFAULT_LOOKBACK = os.environ.get("VBT_LOOKBACK", "1 year ago" if _is_saudi else "2 days ago UTC")
 
-# Override the symbol list with VBT_SYMBOLS (comma-separated), e.g. the Saudi market:
-#   VBT_SYMBOLS=2222,1120,2010,7010,1180
+# Resolve the symbol list and the (optionally labeled) dropdown options.
+# Precedence: VBT_SYMBOLS override > market preset > source defaults.
 _symbols_env = os.environ.get("VBT_SYMBOLS")
 if _symbols_env:
     SYMBOLS = [s.strip() for s in _symbols_env.split(",") if s.strip()]
+    SYMBOL_OPTIONS = [{"label": s, "value": s} for s in SYMBOLS]
+    DEFAULT_SYMBOL = os.environ.get("VBT_SYMBOL", SYMBOLS[0])
+elif MARKET in ("saudi", "tadawul"):
+    from markets import SAUDI_TADAWUL
+
+    SYMBOLS = [code for _, code, _ in SAUDI_TADAWUL]
+    SYMBOL_OPTIONS = [{"label": f"{code} — {name}", "value": code} for _, code, name in SAUDI_TADAWUL]
     DEFAULT_SYMBOL = os.environ.get("VBT_SYMBOL", SYMBOLS[0])
 elif SOURCE == "twelvedata":
     SYMBOLS = ["BTC/USD", "ETH/USD", "AAPL", "TSLA", "EUR/USD"]
+    SYMBOL_OPTIONS = [{"label": s, "value": s} for s in SYMBOLS]
     DEFAULT_SYMBOL = os.environ.get("VBT_SYMBOL", "BTC/USD")
 else:
     SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "BNB/USDT"]
+    SYMBOL_OPTIONS = [{"label": s, "value": s} for s in SYMBOLS]
     DEFAULT_SYMBOL = os.environ.get("VBT_SYMBOL", "BTC/USDT")
 
 TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"]
@@ -276,7 +295,7 @@ server = app.server  # for gunicorn / WSGI deployment
 
 controls = html.Div(className="controls", children=[
     html.Div([html.Label("Symbols"), dcc.Dropdown(
-        SYMBOLS, [DEFAULT_SYMBOL], id="symbol", multi=True, clearable=False)]),
+        SYMBOL_OPTIONS, [DEFAULT_SYMBOL], id="symbol", multi=True, clearable=False)]),
     html.Div([html.Label("Timeframe"), dcc.Dropdown(
         TIMEFRAMES, DEFAULT_TIMEFRAME, id="timeframe", clearable=False)]),
     html.Div([html.Label("Strategy"), dcc.Dropdown(

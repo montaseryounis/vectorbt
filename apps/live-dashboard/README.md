@@ -60,11 +60,22 @@ print(pf.stats())
 stay under Twelve Data's rate limit; clear it with
 `from vectorbt.data.custom import clear_twelvedata_cache`.
 
-### Non-US markets (e.g. the Saudi market / Tadawul)
+### Saudi market (Tadawul) — one-variable preset
 
-Twelve Data symbols outside the US need an exchange/market to disambiguate. Set these
-variables (Tadawul tickers are numeric — Aramco `2222`, Al Rajhi `1120`, SABIC `2010`,
-STC `7010`, SNB `1180`):
+Set **`VBT_MARKET=saudi`** to load a built-in, labeled catalog of 40+ Tadawul stocks
+grouped by sector (Aramco, Al Rajhi, SABIC, STC, Almarai, Jarir, …). It automatically
+selects the Twelve Data source with `exchange=Tadawul` and sensible daily-bar defaults:
+
+```sh
+VBT_MARKET=saudi
+TWELVEDATA_API_KEY=your_key
+```
+
+The symbol dropdown then shows readable entries like `2222 — Saudi Aramco`.
+
+### Other non-US markets (manual)
+
+For any other market, disambiguate symbols explicitly:
 
 ```sh
 VBT_SOURCE=twelvedata
