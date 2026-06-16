@@ -68,7 +68,20 @@ PORT = int(os.environ.get("PORT", 8050))
 
 # Intraday is sparse on Tadawul, so default the Saudi preset to daily bars over a year.
 _is_saudi = MARKET in ("saudi", "tadawul")
-DEFAULT_TIMEFRAME = os.environ.get("VBT_TIMEFRAME", "1d" if _is_saudi else "1m")
+
+# Normalize Twelve Data-style interval names to the dashboard's vocabulary so values
+# like "1day"/"1min" (a common env mistake) still match the dropdown options.
+_TF_ALIASES = {
+    "1min": "1m", "5min": "5m", "15min": "15m", "30min": "30m", "45min": "45m",
+    "60min": "1h", "1day": "1d", "1week": "1w", "1month": "1M",
+}
+
+
+def _norm_tf(tf):
+    return _TF_ALIASES.get(tf, tf)
+
+
+DEFAULT_TIMEFRAME = _norm_tf(os.environ.get("VBT_TIMEFRAME", "1d" if _is_saudi else "1m"))
 DEFAULT_LOOKBACK = os.environ.get("VBT_LOOKBACK", "1 year ago" if _is_saudi else "2 days ago UTC")
 
 # Resolve the symbol list and the (optionally labeled) dropdown options.
@@ -94,6 +107,9 @@ else:
     DEFAULT_SYMBOL = os.environ.get("VBT_SYMBOL", "BTC/USDT")
 
 TIMEFRAMES = ["1m", "5m", "15m", "1h", "4h", "1d"]
+# Make sure the default is always selectable (e.g. a custom VBT_TIMEFRAME).
+if DEFAULT_TIMEFRAME not in TIMEFRAMES:
+    TIMEFRAMES = [DEFAULT_TIMEFRAME] + TIMEFRAMES
 
 # How often the page polls for a redraw (ms). Kept in sync with the data updater.
 REFRESH_MS = int(os.environ.get("VBT_REFRESH_MS", 15_000))
@@ -339,6 +355,7 @@ def refresh(_, symbols, timeframe, strategy, fast, slow):
     if isinstance(symbols, str):
         symbols = [symbols]
     symbols = symbols or [DEFAULT_SYMBOL]
+    timeframe = _norm_tf(timeframe) or DEFAULT_TIMEFRAME  # never send an empty interval
     fast, slow = int(fast or 10), int(slow or 50)
 
     try:
