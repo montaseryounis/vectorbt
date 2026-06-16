@@ -81,7 +81,7 @@ For any other market, disambiguate symbols explicitly:
 VBT_SOURCE=twelvedata
 VBT_TD_EXCHANGE=Tadawul          # or VBT_TD_MIC=XSAU / VBT_TD_COUNTRY="Saudi Arabia"
 VBT_SYMBOLS=2222,1120,2010,7010,1180
-VBT_TIMEFRAME=1day
+VBT_TIMEFRAME=1d
 ```
 
 From the library directly:
