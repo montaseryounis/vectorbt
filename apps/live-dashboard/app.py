@@ -28,6 +28,7 @@ and unlocks private endpoints.
 import os
 import time
 
+import numpy as np
 import dash
 from dash import Dash, dcc, html, Input, Output, State, no_update
 import plotly.graph_objects as go
@@ -223,7 +224,27 @@ def build_portfolio(price, strategy, fast, slow, freq):
 # Plotting
 # ---------------------------------------------------------------------------- #
 
-def make_figure(data, pf, overlays):
+def compute_poc(df, bins=50):
+    """Volume-profile Point of Control: the price level with the most traded volume.
+
+    Bins the typical price (H+L+C)/3 weighted by volume and returns the center of the
+    busiest bin. Returns None when volume is missing or the range is degenerate.
+    """
+    if "Volume" not in df.columns:
+        return None
+    vol = df["Volume"].fillna(0).to_numpy(dtype=float)
+    if vol.sum() <= 0:
+        return None
+    typical = ((df["High"] + df["Low"] + df["Close"]) / 3).to_numpy(dtype=float)
+    lo, hi = float(np.nanmin(typical)), float(np.nanmax(typical))
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        return None
+    profile, edges = np.histogram(typical, bins=bins, range=(lo, hi), weights=vol)
+    k = int(profile.argmax())
+    return float((edges[k] + edges[k + 1]) / 2)
+
+
+def make_figure(data, pf, overlays, poc=None):
     df = data.get()
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.06,
@@ -241,6 +262,13 @@ def make_figure(data, pf, overlays):
             go.Scatter(x=series.index, y=series.values, name=name, mode="lines"),
             row=1, col=1,
         )
+    if poc is not None:
+        # Point of Control — the highest-volume price level.
+        fig.add_hline(
+            y=poc, line=dict(color="#f0b90b", width=1, dash="dot"),
+            annotation_text=f"POC {poc:,.2f}", annotation_position="top left",
+            annotation_font_color="#f0b90b", row=1, col=1,
+        )
     equity = pf.value()
     fig.add_trace(
         go.Scatter(x=equity.index, y=equity.values, name="Equity",
@@ -254,13 +282,13 @@ def make_figure(data, pf, overlays):
     return fig
 
 
-def make_stats(pf):
+def make_stats(pf, poc=None):
     """Render a compact, human-readable stats panel for a single symbol."""
     def row(label, value):
         return html.Tr([html.Td(label, className="k"), html.Td(value, className="v")])
 
     fmt = lambda x: f"{x:,.2f}"
-    return html.Table([
+    rows = [
         row("Start value", fmt(pf.init_cash)),
         row("End value", fmt(float(pf.value().iloc[-1]))),
         row("Total return %", fmt(float(pf.total_return()) * 100)),
@@ -269,7 +297,10 @@ def make_stats(pf):
         row("Sharpe ratio", fmt(float(pf.sharpe_ratio()))),
         row("Total trades", str(int(pf.trades.count()))),
         row("Win rate %", fmt(float(pf.trades.win_rate()) * 100)),
-    ], className="stats")
+    ]
+    if poc is not None:
+        rows.append(row("POC (volume)", fmt(poc)))
+    return html.Table(rows, className="stats")
 
 
 def make_comparison_figure(equities):
@@ -364,7 +395,8 @@ def refresh(_, symbols, timeframe, strategy, fast, slow):
             data = get_feed(symbols[0], timeframe)
             price = data.get("Close")
             pf, overlays = build_portfolio(price, strategy, fast, slow, freq=timeframe)
-            return make_figure(data, pf, overlays), make_stats(pf)
+            poc = compute_poc(data.get())
+            return make_figure(data, pf, overlays, poc), make_stats(pf, poc)
 
         # Multiple symbols: normalized equity overlay + comparison table.
         equities, rows = {}, []
