@@ -60,6 +60,29 @@ print(pf.stats())
 stay under Twelve Data's rate limit; clear it with
 `from vectorbt.data.custom import clear_twelvedata_cache`.
 
+### Non-US markets (e.g. the Saudi market / Tadawul)
+
+Twelve Data symbols outside the US need an exchange/market to disambiguate. Set these
+variables (Tadawul tickers are numeric — Aramco `2222`, Al Rajhi `1120`, SABIC `2010`,
+STC `7010`, SNB `1180`):
+
+```sh
+VBT_SOURCE=twelvedata
+VBT_TD_EXCHANGE=Tadawul          # or VBT_TD_MIC=XSAU / VBT_TD_COUNTRY="Saudi Arabia"
+VBT_SYMBOLS=2222,1120,2010,7010,1180
+VBT_TIMEFRAME=1day
+```
+
+From the library directly:
+
+```python
+data = vbt.TwelveData.download("2222", exchange="Tadawul", interval="1day",
+                               start="6 months ago", apikey="your_key")
+```
+
+> **Note:** Tadawul (and most non-US exchanges) usually require a **paid** Twelve Data
+> plan. On the free tier these requests may return an access/permission error.
+
 ## Configuration
 
 All settings are environment variables (see `.env.example`):
