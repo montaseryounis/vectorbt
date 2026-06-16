@@ -996,6 +996,9 @@ class TwelveData(Data):
         end: tp.Optional[tp.DatetimeLike] = None,
         outputsize: int = 5000,
         timezone: str = "UTC",
+        exchange: tp.Optional[str] = None,
+        mic_code: tp.Optional[str] = None,
+        country: tp.Optional[str] = None,
         delay: tp.Optional[float] = None,
         use_cache: bool = False,
         cache_ttl: float = 60.0,
@@ -1021,6 +1024,11 @@ class TwelveData(Data):
                 See `vectorbt.utils.datetime_.to_tzaware_datetime`.
             outputsize (int): Maximum number of bars to return (Twelve Data caps this at 5000).
             timezone (str): Timezone of the returned bars.
+            exchange (str): Exchange to disambiguate the symbol, e.g. `"Tadawul"` for the
+                Saudi market or `"NASDAQ"`. Needed for non-US tickers.
+            mic_code (str): Market Identifier Code, e.g. `"XSAU"` (Tadawul). Alternative
+                to `exchange`.
+            country (str): Country to disambiguate the symbol, e.g. `"Saudi Arabia"`.
             delay (float): Time to sleep after the request (in milliseconds).
 
                 Useful for staying under the free-tier rate limit.
@@ -1058,6 +1066,12 @@ class TwelveData(Data):
             "format": "JSON",
             "apikey": apikey,
         }
+        if exchange is not None:
+            params["exchange"] = exchange
+        if mic_code is not None:
+            params["mic_code"] = mic_code
+        if country is not None:
+            params["country"] = country
         if start is not None:
             start = to_tzaware_datetime(start, tz=get_utc_tz())
             params["start_date"] = pd.Timestamp(start).strftime("%Y-%m-%d %H:%M:%S")

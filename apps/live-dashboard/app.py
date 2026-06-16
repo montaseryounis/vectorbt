@@ -49,13 +49,25 @@ API_SECRET = os.environ.get("VBT_API_SECRET")
 # Twelve Data uses its own single API key.
 TWELVEDATA_API_KEY = os.environ.get("TWELVEDATA_API_KEY")
 
+# Optional Twelve Data market disambiguation, e.g. the Saudi market (Tadawul):
+#   VBT_TD_EXCHANGE=Tadawul   (or VBT_TD_MIC=XSAU, VBT_TD_COUNTRY="Saudi Arabia")
+TD_EXCHANGE = os.environ.get("VBT_TD_EXCHANGE")
+TD_MIC = os.environ.get("VBT_TD_MIC")
+TD_COUNTRY = os.environ.get("VBT_TD_COUNTRY")
+
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", 8050))
 
 DEFAULT_TIMEFRAME = os.environ.get("VBT_TIMEFRAME", "1m")
 DEFAULT_LOOKBACK = os.environ.get("VBT_LOOKBACK", "2 days ago UTC")
 
-if SOURCE == "twelvedata":
+# Override the symbol list with VBT_SYMBOLS (comma-separated), e.g. the Saudi market:
+#   VBT_SYMBOLS=2222,1120,2010,7010,1180
+_symbols_env = os.environ.get("VBT_SYMBOLS")
+if _symbols_env:
+    SYMBOLS = [s.strip() for s in _symbols_env.split(",") if s.strip()]
+    DEFAULT_SYMBOL = os.environ.get("VBT_SYMBOL", SYMBOLS[0])
+elif SOURCE == "twelvedata":
     SYMBOLS = ["BTC/USD", "ETH/USD", "AAPL", "TSLA", "EUR/USD"]
     DEFAULT_SYMBOL = os.environ.get("VBT_SYMBOL", "BTC/USD")
 else:
@@ -103,6 +115,9 @@ def _download(symbol, timeframe):
             apikey=TWELVEDATA_API_KEY,
             interval=timeframe,
             start=DEFAULT_LOOKBACK,
+            exchange=TD_EXCHANGE,
+            mic_code=TD_MIC,
+            country=TD_COUNTRY,
         )
     return vbt.CCXTData.download(
         symbol,

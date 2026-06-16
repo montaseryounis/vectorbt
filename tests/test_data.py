@@ -1071,6 +1071,32 @@ class TestTwelveData:
         assert df["Close"].tolist() == [1.5, 3.0]
         assert str(df.index.tz) == "UTC"
 
+    def test_download_forwards_market_params(self, monkeypatch):
+        payload = {
+            "status": "ok",
+            "values": [
+                {"datetime": "2021-01-01 00:00:00", "open": "1", "high": "2",
+                 "low": "0.5", "close": "1.5", "volume": "10"},
+            ],
+        }
+        captured = {}
+
+        def fake_get(url, params=None, **kwargs):
+            captured["params"] = params
+            return _FakeResponse(payload)
+
+        import requests
+        monkeypatch.setattr(requests, "get", fake_get)
+
+        # Saudi market (Tadawul): exchange/mic_code/country forwarded to the API.
+        vbt.TwelveData.download("2222", exchange="Tadawul", interval="1day", apikey="dummy")
+        assert captured["params"]["symbol"] == "2222"
+        assert captured["params"]["exchange"] == "Tadawul"
+        assert captured["params"]["interval"] == "1day"
+        # Unset market params must not be sent.
+        assert "mic_code" not in captured["params"]
+        assert "country" not in captured["params"]
+
     def test_download_raises_on_api_error(self, monkeypatch):
         payload = {"code": 401, "message": "Invalid API key", "status": "error"}
 
