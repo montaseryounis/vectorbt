@@ -224,11 +224,16 @@ def build_portfolio(price, strategy, fast, slow, freq):
 # Plotting
 # ---------------------------------------------------------------------------- #
 
-def compute_poc(df, bins=50):
-    """Volume-profile Point of Control: the price level with the most traded volume.
+def compute_volume_profile(df, bins=50, value_area=0.70):
+    """Volume profile: Point of Control (POC) and the Value Area (VAH/VAL).
 
-    Bins the typical price (H+L+C)/3 weighted by volume and returns the center of the
-    busiest bin. Returns None when volume is missing or the range is degenerate.
+    Bins the typical price (H+L+C)/3 weighted by volume. POC is the busiest bin's
+    center; the Value Area is the contiguous range around the POC that holds
+    ``value_area`` (default 70%) of the total volume, grown one bin at a time toward
+    whichever neighbor has more volume.
+
+    Returns a dict ``{"poc", "vah", "val"}`` or None when volume is missing or the
+    price range is degenerate.
     """
     if "Volume" not in df.columns:
         return None
@@ -239,17 +244,55 @@ def compute_poc(df, bins=50):
     lo, hi = float(np.nanmin(typical)), float(np.nanmax(typical))
     if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
         return None
+
     profile, edges = np.histogram(typical, bins=bins, range=(lo, hi), weights=vol)
-    k = int(profile.argmax())
-    return float((edges[k] + edges[k + 1]) / 2)
+    centers = (edges[:-1] + edges[1:]) / 2
+    poc_idx = int(profile.argmax())
+
+    target = profile.sum() * value_area
+    acc = profile[poc_idx]
+    lo_idx = hi_idx = poc_idx
+    n = len(profile)
+    while acc < target and (lo_idx > 0 or hi_idx < n - 1):
+        up = profile[hi_idx + 1] if hi_idx < n - 1 else -1.0
+        down = profile[lo_idx - 1] if lo_idx > 0 else -1.0
+        if up >= down:
+            hi_idx += 1
+            acc += profile[hi_idx]
+        else:
+            lo_idx -= 1
+            acc += profile[lo_idx]
+
+    return {
+        "poc": float(centers[poc_idx]),
+        "vah": float(edges[hi_idx + 1]),
+        "val": float(edges[lo_idx]),
+    }
 
 
-def make_figure(data, pf, overlays, poc=None):
+def make_figure(data, pf, overlays, vp=None):
     df = data.get()
     fig = make_subplots(
         rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.06,
         row_heights=[0.7, 0.3], subplot_titles=("Price & signals", "Equity"),
     )
+    if vp is not None:
+        # Value Area (70% of volume) shaded between VAL and VAH, with the POC line.
+        fig.add_hrect(
+            y0=vp["val"], y1=vp["vah"], line_width=0,
+            fillcolor="#f0b90b", opacity=0.10, row=1, col=1,
+        )
+        for level, label in (("vah", "VAH"), ("val", "VAL")):
+            fig.add_hline(
+                y=vp[level], line=dict(color="#8b949e", width=1, dash="dash"),
+                annotation_text=f"{label} {vp[level]:,.2f}", annotation_position="top left",
+                annotation_font_color="#8b949e", row=1, col=1,
+            )
+        fig.add_hline(
+            y=vp["poc"], line=dict(color="#f0b90b", width=1.5, dash="dot"),
+            annotation_text=f"POC {vp['poc']:,.2f}", annotation_position="top left",
+            annotation_font_color="#f0b90b", row=1, col=1,
+        )
     fig.add_trace(
         go.Candlestick(
             x=df.index, open=df["Open"], high=df["High"],
@@ -261,13 +304,6 @@ def make_figure(data, pf, overlays, poc=None):
         fig.add_trace(
             go.Scatter(x=series.index, y=series.values, name=name, mode="lines"),
             row=1, col=1,
-        )
-    if poc is not None:
-        # Point of Control — the highest-volume price level.
-        fig.add_hline(
-            y=poc, line=dict(color="#f0b90b", width=1, dash="dot"),
-            annotation_text=f"POC {poc:,.2f}", annotation_position="top left",
-            annotation_font_color="#f0b90b", row=1, col=1,
         )
     equity = pf.value()
     fig.add_trace(
@@ -282,7 +318,7 @@ def make_figure(data, pf, overlays, poc=None):
     return fig
 
 
-def make_stats(pf, poc=None):
+def make_stats(pf, vp=None):
     """Render a compact, human-readable stats panel for a single symbol."""
     def row(label, value):
         return html.Tr([html.Td(label, className="k"), html.Td(value, className="v")])
@@ -298,8 +334,10 @@ def make_stats(pf, poc=None):
         row("Total trades", str(int(pf.trades.count()))),
         row("Win rate %", fmt(float(pf.trades.win_rate()) * 100)),
     ]
-    if poc is not None:
-        rows.append(row("POC (volume)", fmt(poc)))
+    if vp is not None:
+        rows.append(row("Value Area High", fmt(vp["vah"])))
+        rows.append(row("POC (volume)", fmt(vp["poc"])))
+        rows.append(row("Value Area Low", fmt(vp["val"])))
     return html.Table(rows, className="stats")
 
 
@@ -395,8 +433,8 @@ def refresh(_, symbols, timeframe, strategy, fast, slow):
             data = get_feed(symbols[0], timeframe)
             price = data.get("Close")
             pf, overlays = build_portfolio(price, strategy, fast, slow, freq=timeframe)
-            poc = compute_poc(data.get())
-            return make_figure(data, pf, overlays, poc), make_stats(pf, poc)
+            vp = compute_volume_profile(data.get())
+            return make_figure(data, pf, overlays, vp), make_stats(pf, vp)
 
         # Multiple symbols: normalized equity overlay + comparison table.
         equities, rows = {}, []
