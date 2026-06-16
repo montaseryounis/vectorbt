@@ -5,9 +5,9 @@
 
 """Live strategy dashboard built on top of vectorbt.
 
-Streams OHLCV data from any CCXT-supported exchange (Binance by default), keeps it
-fresh in the background via ``vbt.DataUpdater``, runs a vectorbt backtest on every
-refresh, and renders an interactive Plotly dashboard in the browser.
+Streams OHLCV data from a CCXT exchange or Twelve Data, refreshes it incrementally
+via ``Data.update()`` on each UI tick, runs a vectorbt backtest on every refresh, and
+renders an interactive Plotly dashboard in the browser.
 
 Run with::
 
@@ -26,6 +26,7 @@ and unlocks private endpoints.
 """
 
 import os
+import time
 
 import dash
 from dash import Dash, dcc, html, Input, Output, State, no_update
@@ -82,41 +83,55 @@ def _ccxt_config():
 
 
 # ---------------------------------------------------------------------------- #
-# Live data layer: one cached Data object per (symbol, timeframe), kept fresh by
-# a background DataUpdater so the UI never blocks on a network call.
+# Live data layer: one cached Data object per (symbol, timeframe), refreshed
+# incrementally and throttled on access (driven by the UI's periodic callback).
 # ---------------------------------------------------------------------------- #
 
-_feeds = {}  # (symbol, timeframe) -> {"updater": DataUpdater}
+# We deliberately avoid vbt.DataUpdater's asyncio background scheduler, which needs a
+# running event loop and fails ("no running event loop") inside a gunicorn sync worker.
+_feeds = {}  # (symbol, timeframe) -> {"data": Data, "last": float}
+
+# Don't hit the data provider more often than the refresh interval (min 5s) to
+# respect rate limits (e.g. Twelve Data's free tier).
+_MIN_UPDATE_S = max(REFRESH_MS / 1000, 5)
 
 
-def get_feed(symbol, timeframe):
-    """Return a live, auto-updating data feed for ``(symbol, timeframe)``."""
-    key = (symbol, timeframe)
-    feed = _feeds.get(key)
-    if feed is not None:
-        return feed["updater"].data
-
+def _download(symbol, timeframe):
     if SOURCE == "twelvedata":
-        data = vbt.TwelveData.download(
+        return vbt.TwelveData.download(
             symbol,
             apikey=TWELVEDATA_API_KEY,
             interval=timeframe,
             start=DEFAULT_LOOKBACK,
         )
-    else:
-        data = vbt.CCXTData.download(
-            symbol,
-            exchange=EXCHANGE,
-            config=_ccxt_config(),
-            timeframe=timeframe,
-            start=DEFAULT_LOOKBACK,
-            show_progress=False,
-        )
-    updater = vbt.DataUpdater(data)
-    # Poll the exchange in the background; the UI reads updater.data on each tick.
-    updater.update_every(int(REFRESH_MS / 1000), "seconds", in_background=True)
-    _feeds[key] = {"updater": updater}
-    return updater.data
+    return vbt.CCXTData.download(
+        symbol,
+        exchange=EXCHANGE,
+        config=_ccxt_config(),
+        timeframe=timeframe,
+        start=DEFAULT_LOOKBACK,
+        show_progress=False,
+    )
+
+
+def get_feed(symbol, timeframe):
+    """Return a cached Data object for ``(symbol, timeframe)``, refreshed in place."""
+    key = (symbol, timeframe)
+    now = time.monotonic()
+    feed = _feeds.get(key)
+    if feed is None:
+        data = _download(symbol, timeframe)
+        _feeds[key] = {"data": data, "last": now}
+        return data
+
+    # Pull only the bars since the last fetch, and only if enough time has passed.
+    if now - feed["last"] >= _MIN_UPDATE_S:
+        try:
+            feed["data"] = feed["data"].update()
+        except Exception:
+            pass  # keep serving the last good data; surfaced errors come from refresh()
+        feed["last"] = now
+    return feed["data"]
 
 
 # ---------------------------------------------------------------------------- #
